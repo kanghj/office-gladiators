@@ -1,0 +1,385 @@
+<!doctype html>
+<html>
+    <head>
+        <script src="pixi.min.js"></script>
+        <meta charset="utf-8">
+        <title>Hello World</title>
+    </head>
+
+    <body>
+        <script>
+            Array.prototype.sample = function(){
+                return this[Math.floor(Math.random()*this.length)];
+            }
+        </script>
+        <script type="text/javascript">
+            let type = "WebGL";
+            if(!PIXI.utils.isWebGLSupported()){
+                type = "canvas"
+            }
+        
+            var slave = null;
+            var printer = null;
+            var bosses = [];
+            var levelLines = [];
+
+            var workLeft = [];
+            var bossAnger = 0;
+
+            var workMessage = new PIXI.Text("Work left");
+            var bossMessage = new PIXI.Text("Work left");
+
+      
+
+            PIXI.loader
+            .add(["images/office_drone.png",
+                "images/office_slavedriver.png",
+                "images/printer.png",
+                "images/table.png"])
+            .on("progress", loadProgressHandler)
+            .load(setup);
+
+            function loadProgressHandler(loader, resource) {
+                console.log("loading: " + resource.url); 
+
+                console.log("progress: " + loader.progress + "%"); 
+            }
+
+            const TYPE_OF_WORK = Object.freeze({
+                PRINT: Symbol('print'),
+                TYPE : Symbol('type'),
+                TALK: Symbol('talk')
+            });
+
+            function setup() {
+                slave = new PIXI.Sprite(
+                    PIXI.loader.resources["images/office_drone.png"].texture
+                );
+
+                slave.x = 400;
+                slave.y = 512;
+
+                slave.vx = 0;
+                slave.vy = 0;
+
+                slave.width = 50;
+                slave.height = 50;
+                app.stage.addChild(slave);
+
+                printer = new PIXI.Sprite(
+                    PIXI.loader.resources["images/printer.png"].texture
+                );
+
+                printer.x = 0;
+                printer.y = 0;
+                app.stage.addChild(printer);
+
+                let numberOfBosses = 2,
+                    spacing = 48,
+                    xOffset = 150;
+
+          
+                for (let i = 0; i < numberOfBosses; i++) {
+
+                    //Make a blob
+                    let blob = new PIXI.Sprite(
+                        PIXI.loader.resources["images/office_slavedriver.png"].texture
+                    );
+
+                    //Space each blob horizontally according to the `spacing` value.
+                    //`xOffset` determines the point from the left of the screen
+                    //at which the first blob should be added.
+                    let x = spacing * i + xOffset;
+
+                    //Give the blob a random y position
+                    //(`randomInt` is a custom function - see below)
+                    let y = randomInt(0, app.stage.height - blob.height);
+
+                    //Set the blob's position
+                    blob.x = x;
+                    blob.y = y;
+
+                    blob.vx = 0;
+                    blob.vy = 0;
+
+                    //Add the blob sprite to the stage
+                    app.stage.addChild(blob);
+                    bosses.push(blob);
+                }
+
+                app.stage.addChild(workMessage);
+
+                function buildLevel() {
+                    function line(startX, startY, endX, endY) {
+                        let line = new PIXI.Graphics();
+                        line.lineStyle(4, 0xFFFFFF, 1);
+                        line.moveTo(startX, startY);
+                        line.lineTo(endX, endY);
+                        line.x = 32;
+                        line.y = 32;
+                        app.stage.addChild(line);
+
+                        levelLines.push(line);
+                    }
+
+                    line(200, 100, 200, 1024);
+                    line(200, 100, 400, 100);
+                    line(200, 350, 400, 350);
+
+
+                    line(500, 100, 800, 100);
+                    line(500, 350, 800, 350);
+
+                    line(400, 175, 400, 450);
+                    line(500, 175, 500, 450);
+
+                    // line(400, 100, 400, 1024);
+                    
+
+                    workLeft.push(TYPE_OF_WORK.PRINT, TYPE_OF_WORK.PRINT, TYPE_OF_WORK.PRINT);
+                }
+                buildLevel();
+
+
+                let left = keyboard(37),
+                    up = keyboard(38),
+                    right = keyboard(39),
+                    down = keyboard(40);
+
+    
+                left.press = () => {
+                    slave.vx = -5;
+                    slave.vy = 0;
+                };
+     
+                left.release = () => {
+                
+                    if (!right.isDown && slave.vy === 0) {
+                    slave.vx = 0;
+                    }
+                };
+
+
+                up.press = () => {
+                    slave.vy = -5;
+                    slave.vx = 0;
+                };
+                up.release = () => {
+                    if (!down.isDown && slave.vx === 0) {
+                    slave.vy = 0;
+                    }
+                };
+
+
+                right.press = () => {
+                    slave.vx = 5;
+                    slave.vy = 0;
+                };
+                right.release = () => {
+                    if (!left.isDown && slave.vy === 0) {
+                    slave.vx = 0;
+                    }
+                };
+
+                down.press = () => {
+                    slave.vy = 5;
+                    slave.vx = 0;
+                };
+                down.release = () => {
+                    if (!up.isDown && slave.vx === 0) {
+                    slave.vy = 0;
+                    }
+                };
+
+                app.ticker.add(delta => gameLoop(delta))
+            }
+
+
+            //Create a Pixi Application
+            let app = new PIXI.Application({width: 256, height: 256});
+
+            app.renderer.backgroundColor = 0x061639;
+            app.renderer.autoResize = true;
+            app.renderer.resize(800, 1024);
+
+            //Add the canvas that Pixi automatically created for you to the HTML document
+            document.body.appendChild(app.view);
+
+            function randomInt(min, max) {
+                return Math.floor(Math.random() * (max - min + 1)) + min;
+            }
+
+            function gameLoop(delta) {
+                function theSlaveMoves() {
+               
+                    let projected_x = slave.x + slave.vx;
+                    let projected_y = slave.y + slave.vy;
+
+                    let canMove = slaveCollision(slave, projected_x, projected_y);
+                    if (canMove) {
+                        slave.x += slave.vx;
+                        slave.y += slave.vy;
+                    }
+                }
+
+                function theBossFollows(bossIndex) {
+                    let boss = bosses[bossIndex];
+               
+                    let projected_x = boss.x + boss.vx;
+                    let projected_y = boss.y + boss.vy;
+
+                    let canMove = bossCollision(boss, projected_x, projected_y);
+                    if (canMove) {
+                        boss.x += boss.vx;
+                        boss.y += boss.vy;
+                    }
+                }
+                
+                function slaveCollision(slave, projected_x, projected_y) {
+                    return collision(slave, projected_x, projected_y, {
+                        'checkBoss': true
+                    });
+                }
+
+                function bossCollision(slave, projected_x, projected_y) {
+                    return collision(slave, projected_x, projected_y, {
+                        'checkBoss': false
+                    });
+                }
+
+                function collision(slave, projected_x, projected_y, options) {
+                    let future = {
+                                width: slave.width,
+                                height: slave.height,
+                                x: projected_x,
+                                y: projected_y,
+
+                            };
+                    for (var levelLine of levelLines) {
+    
+                        if (levelLine.currentPath.points) {
+                           
+
+                            var slaveLeftX = future.x - future.width / 2;
+                            var slaveRightX =  future.x + future.width / 2;
+                            var slaveTopY = future.y - future.height / 2;
+                            var slaveBottomY = future.y + future.height / 2;
+
+                            var inBoundsX = (
+                                    slaveLeftX < levelLine.currentPath.points[0] && 
+                                    slaveRightX > levelLine.currentPath.points[0]
+                                ) || (
+                                    slaveLeftX > levelLine.currentPath.points[0] && 
+                                    slaveLeftX < levelLine.currentPath.points[2]
+                                );
+                                
+                            var inBoundsY = (
+                                slaveTopY < levelLine.currentPath.points[1] && 
+                                slaveBottomY > levelLine.currentPath.points[1]
+                            ) || (
+                                slaveTopY > levelLine.currentPath.points[1] && 
+                                slaveTopY < levelLine.currentPath.points[3]
+                            );
+                            
+                            if (inBoundsX && inBoundsY) {
+                                return false;
+                            }
+                        }
+                    }
+                    // hitRectangle(future, levelLines[0]);
+
+                    if (options && options['checkBoss']) {
+                        for (var boss of bosses) {
+                            if (hitRectangle(future, boss)) {
+                                workLeft.push(Object.values(TYPE_OF_WORK).sample());
+                                return false;
+                            }
+                        }
+                    }
+
+                    if (hitRectangle(future, printer)) {
+                        let index = workLeft.indexOf(TYPE_OF_WORK.PRINT);
+                        if (index > -1) {
+                            workLeft.splice(workLeft.indexOf(TYPE_OF_WORK.PRINT), 1);
+                        }
+                        return false;
+                    }
+
+                    return true;
+                }
+
+                theSlaveMoves();
+                for (boss in bosses) {
+                    theBossFollows(boss);
+                }
+
+                workMessage.text = "Work left: " + workLeft.length;
+            }
+
+            function hitRectangle(r1, r2) {
+                let combinedHalfWidths, combinedHalfHeights, vx, vy;
+                
+                r1.centerX = r1.x + r1.width / 2;
+                r1.centerY = r1.y + r1.height / 2;
+                r2.centerX = r2.x + r2.width / 2;
+                r2.centerY = r2.y + r2.height / 2;
+
+                
+                r1.halfWidth = r1.width / 2;
+                r1.halfHeight = r1.height / 2;
+                r2.halfWidth = r2.width / 2;
+                r2.halfHeight = r2.height / 2;
+
+                vx = r1.centerX - r2.centerX;
+                vy = r1.centerY - r2.centerY;
+
+                combinedHalfWidths = r1.halfWidth + r2.halfWidth;
+                combinedHalfHeights = r1.halfHeight + r2.halfHeight;
+
+                return Math.abs(vx) < combinedHalfWidths && Math.abs(vy) < combinedHalfHeights;
+                        
+            };
+
+            function keyboard(keyCode) {
+                let key = {};
+                key.code = keyCode;
+                key.isDown = false;
+                key.isUp = true;
+                key.press = undefined;
+                key.release = undefined;
+                //The `downHandler`
+                key.downHandler = event => {
+                    if (event.keyCode === key.code) {
+                        if (key.isUp && key.press) key.press();
+                        key.isDown = true;
+                        key.isUp = false;
+                    }
+                    event.preventDefault();
+                };
+
+                //The `upHandler`
+                key.upHandler = event => {
+                    if (event.keyCode === key.code) {
+                        if (key.isDown && key.release) key.release();
+                        key.isDown = false;
+                        key.isUp = true;
+                    }
+                    event.preventDefault();
+                };
+
+                //Attach event listeners
+                window.addEventListener(
+                    "keydown", key.downHandler.bind(key), false
+                );
+                window.addEventListener(
+                    "keyup", key.upHandler.bind(key), false
+                );
+                return key;
+            }
+        </script>
+
+
+    </body>
+
+
+</html>
