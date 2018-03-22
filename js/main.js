@@ -15,6 +15,7 @@ var levelLines = [];
 var workLeft = [];
 var bossAnger = 0;
 
+var eventQueue = [];
 var dialogue;
 var leftButton;
 var rightButton;
@@ -23,6 +24,7 @@ var ticksSinceLastBossDialogue = 0;
 var ticksSinceLastColleagueDialogue = 0;
 
 var workMessage = new PIXI.Text("Work left");
+workMessage.style.fill = 0xFFFFFF;
 var bossMessage = new PIXI.Text("How angry your boss is");
 var speechText;
 
@@ -42,6 +44,7 @@ const CUBICLE_POSITIONS = [
 ];
 
 
+
 PIXI.loader
     .add(["images/office_drone.png",
         "images/office_slavedriver.png",
@@ -59,8 +62,17 @@ function loadProgressHandler(loader, resource) {
 
 const TYPE_OF_WORK = Object.freeze({
     PRINT: Symbol('print'),
+    // type = type on keyboard
     TYPE : Symbol('type'),
-    TALK: Symbol('talk')
+    TALK: Symbol('talk'),
+    SCHEDULE_MEETING: Symbol('schedule'),
+    ASK_FOR_WORK: Symbol('ask_work'),
+    // if failed to complete a throw_work task by a deadline, 
+    // it turns into another type of work
+    THROW_WORK: Symbol('throw_work'),
+    // for political events once enough political_allies are gathered
+    CONSPIRE: Symbol('conspire')
+    
 });
 
 function setup() {
@@ -84,6 +96,8 @@ function setup() {
 
     slave.width = 50;
     slave.height = 50;
+
+    slave.name = 'John';
 
     computer.width = 50;
     computer.height = 50;
@@ -124,6 +138,8 @@ function setup() {
         bosses.push(boss);
     }
 
+    var colleague_names = ['Mary', 'Sam', 'Tom', 'Steve', 'Nicole', 'Sophia'];
+
     for (const position of CUBICLE_POSITIONS) {
         if (position !== startingPosition) {
             let computer = new PIXI.Sprite(
@@ -148,12 +164,14 @@ function setup() {
             app.stage.addChild(colleague);
             app.stage.addChild(computer);
 
-            colleagues.push(colleague);
+            colleague.name = colleague_names.sample();
+            colleague_names = colleague_names.filter((e) => e != colleague.name);
 
+            colleagues.push(colleague);
         }
     }
+    randomInitPoliticalCompass(colleagues.map((c) => c.name));
     
-
     app.stage.addChild(workMessage);
 
     function buildLevel() {
@@ -245,6 +263,10 @@ function setup() {
     }
     createDialogueBox();
     hideDialogue();
+
+    eventQueue = [
+        null, null, null, null, null, null, 
+        new SomeoneWantsAMeeting(colleagues.sample().name)];    
 
 
     let left = keyboard(37),
@@ -414,7 +436,8 @@ function gameLoop(delta) {
                     rightDialogueButtonCallback = function() {
                         hideDialogue();
 
-                        workLeft.push(Object.values(TYPE_OF_WORK).sample());
+                        workLeft.push(
+                            [TYPE_OF_WORK.TYPE, TYPE_OF_WORK.PRINT].sample());
                     }
                     showDialogue(bossSpeaks(), leftDialogueButtonCallback, rightDialogueButtonCallback);
 
@@ -426,29 +449,83 @@ function gameLoop(delta) {
             }
         }
 
-        if (!options.hasOwnProperty('incPrinter') || options['incPrinter'] === true) {
+        if (options && !options.hasOwnProperty('incPrinter') || options['incPrinter'] == true) {
             if (hitRectangle(future, printer)) {
                 let index = workLeft.indexOf(TYPE_OF_WORK.PRINT);
-                if (index > -1) {
-                    workLeft.splice(workLeft.indexOf(TYPE_OF_WORK.PRINT), 1);
-                }
+                
+                workLeft = workLeft.filter(w => w instanceof Array 
+                                                || w != TYPE_OF_WORK.PRINT);
+
                 return false;
             }
         }
 
         for (var colleague of colleagues) {
-            if (hitRectangle(future, colleague)) {
-                leftDialogueButtonCallback = function() {
-                    hideDialogue();
+            if (hitRectangle(future, colleague) && ticksSinceLastColleagueDialogue > 50) {
+                let scheduleMeetingJobs = workLeft
+                    .filter(work => work instanceof Array)
+                    .filter(work => work[0] == TYPE_OF_WORK.SCHEDULE_MEETING)
+                    .filter(work => work[1] == colleague.name);
+                let askForWorkJobs = workLeft
+                    .filter(work => work instanceof Array)
+                    .filter(work => work[0] == TYPE_OF_WORK.ASK_FOR_WORK)
+                    .filter(work => work[1] == colleague.name);
+                
 
-                };
+                if (scheduleMeetingJobs.length > 0) {
+                    let work = scheduleMeetingJobs.shift();
 
-                rightDialogueButtonCallback = function() {
-                    hideDialogue();
+                    workLeft = workLeft.filter(w => w != work);
 
+                    leftDialogueButtonCallback = function() {
+                        hideDialogue();
+                        addPoliticalEnemy(colleague.name, slave.name);
+                    };
+
+                    rightDialogueButtonCallback = function() {
+                        hideDialogue();
+
+                        addFriend(colleague.name, slave.name);
+
+                        // callback for work
+                        work[2]();
+                    }
+
+                    showDialogue(colleagueSpeaksWithPolitics(colleague.name, 'meeting'), leftDialogueButtonCallback, rightDialogueButtonCallback);
+
+                } if (askForWorkJobs.length > 0) {
+                    let work = askForWorkJobs.shift();
+
+                    workLeft = workLeft.filter(w => w != work);
+
+                    leftDialogueButtonCallback = function() {
+                        hideDialogue();
+                        
+                    };
+
+                    rightDialogueButtonCallback = function() {
+                        hideDialogue();
+                     
+                    }
+
+                    showDialogue(colleagueSpeaks(), leftDialogueButtonCallback, rightDialogueButtonCallback);
+                } else {
+                    // just normal talk
+
+                    leftDialogueButtonCallback = function() {
+                        hideDialogue();
+                    };
+
+                    rightDialogueButtonCallback = function() {
+                        hideDialogue();
+                    }
+
+                    let whatToSay = [
+                            colleagueSpeaks, 
+                            colleagueSpeaksWithPolitics.bind(null, colleague.name, 'smalltalk')
+                        ].sample();
+                    showDialogue(whatToSay(), leftDialogueButtonCallback, rightDialogueButtonCallback);
                 }
-
-                showDialogue(colleagueSpeaks(), leftDialogueButtonCallback, rightDialogueButtonCallback);
 
                 ticksSinceLastColleagueDialogue = 0;
 
@@ -461,7 +538,6 @@ function gameLoop(delta) {
 
     if (!isGameFrozen) {
         
-
         theSlaveMoves();
         for (boss in bosses) {
             theBossFollows(boss);
@@ -469,6 +545,7 @@ function gameLoop(delta) {
 
         gameticks += 1 % 10000;
         ticksSinceLastBossDialogue += 1 % 10000;
+        ticksSinceLastColleagueDialogue += 1 % 10000;
         if (gameticks % 25 == 0) {
             for (boss of bosses) {
                 if (randomInt(0, 1) == 0) {
@@ -482,7 +559,41 @@ function gameLoop(delta) {
             }
         }
 
-        workMessage.text = "Work left: " + workLeft.length;
+        if (gameticks % 200 == 0) {
+            let event = nextEvent();
+            if (event) {
+                event.run();
+            }
+        }
+
+        let displayableWorkLeft = workLeft.map(
+            work => displayWork(work)
+        );
+
+        workMessage.text = "Work left: " + displayableWorkLeft;
+    }
+}
+
+function displayWork(work) {
+    let workType;
+    if (work instanceof Array) {
+        workType = work[0];
+    } else {
+        workType = work;
+    }
+    switch (workType) {
+        case TYPE_OF_WORK.PRINT:
+            return 'Go to the printer and press a button';
+        case TYPE_OF_WORK.TALK:
+            return 'Talk'; // TODO
+        case TYPE_OF_WORK.SCHEDULE_MEETING:
+            return `Talk to ${work[1]} to schedule a meeting`;
+        case TYPE_OF_WORK.THROW_WORK:
+            return 'Throw work'; // TODO
+        case TYPE_OF_WORK.ASK_FOR_WORK:
+            return `Talk to ${work[1]} to bring a request`;
+        case TYPE_OF_WORK.CONSPIRE:
+            return 'conspire'; // TODO
     }
 }
 
@@ -559,4 +670,10 @@ function showDialogue(text, leftDialogueButtonCallback,rightDialogueButtonCallba
     isGameFrozen = true;
     dialogue.visible = true;
     speechText.text = text;
+}
+
+
+function nextEvent() {
+    return eventQueue.shift();
+
 }
