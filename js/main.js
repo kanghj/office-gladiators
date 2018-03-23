@@ -5,6 +5,7 @@ if(!PIXI.utils.isWebGLSupported()){
 
 var slave = null;
 var printer = null;
+var computer = null;
 var bosses = [];
 var colleagues = [];
 
@@ -14,6 +15,7 @@ var levelLines = [];
 
 var workLeft = [];
 var bossAnger = 0;
+taskTimeLimit = Infinity;
 
 var eventQueue = [];
 var dialogue;
@@ -25,8 +27,10 @@ var ticksSinceLastColleagueDialogue = 0;
 
 var workMessage = new PIXI.Text("Work left");
 workMessage.style.fill = 0xFFFFFF;
+workMessage.style.fontSize = 10;
 var bossMessage = new PIXI.Text("How angry your boss is");
 var speechText;
+var dialoguePerson;
 
 
 const GAME_WIDTH = 800;
@@ -66,6 +70,7 @@ const TYPE_OF_WORK = Object.freeze({
     TYPE : Symbol('type'),
     TALK: Symbol('talk'),
     SCHEDULE_MEETING: Symbol('schedule'),
+    // ASK_FOR_WORK = ask a colleague to submit some work
     ASK_FOR_WORK: Symbol('ask_work'),
     // if failed to complete a throw_work task by a deadline, 
     // it turns into another type of work
@@ -84,7 +89,7 @@ function setup() {
     slave.x = startingPosition[0];
     slave.y = startingPosition[1] + 50;
 
-    let computer = new PIXI.Sprite(
+    computer = new PIXI.Sprite(
         PIXI.loader.resources["images/computer.png"].texture
     );
 
@@ -171,6 +176,7 @@ function setup() {
         }
     }
     randomInitPoliticalCompass(colleagues.map((c) => c.name));
+    randomInitRelations(colleagues.map((c) => c.name));
     
     app.stage.addChild(workMessage);
 
@@ -254,9 +260,13 @@ function setup() {
         dialogue.addChild(rightButtonText);
 
         speechText = new PIXI.Text("Ok\n AHHHHHHHHH", {fontSize: 16});
-        speechText.position = new PIXI.Point (app.stage.width / 2 - 180 ,app.stage.height / 2 - 80);
+        speechText.position = new PIXI.Point (app.stage.width / 2 - 180 ,app.stage.height / 2 - 60);
         dialogue.addChild(speechText);
 
+
+        dialoguePerson = new PIXI.Text("", {fontSize: 12});
+        dialoguePerson.position = new PIXI.Point (app.stage.width / 2 - 180 ,app.stage.height / 2 - 80);
+        dialogue.addChild(dialoguePerson);
 
         dialogue.visible = false;
         
@@ -423,25 +433,28 @@ function gameLoop(delta) {
         }
         // hitRectangle(future, levelLines[0]);
 
-        if (options && options['checkBoss'] && ticksSinceLastBossDialogue > 50) {
+        if (options && options['checkBoss']) {
             for (var boss of bosses) {
                 if (hitRectangle(future, boss)) {
 
-                    leftDialogueButtonCallback = function() {
-                        hideDialogue();
+                    if (ticksSinceLastBossDialogue > 75) {
+                        leftDialogueButtonCallback = function() {
+                            hideDialogue();
 
-                        bossAnger += 5;
-                    };
+                            bossAnger += 5;
+                        };
 
-                    rightDialogueButtonCallback = function() {
-                        hideDialogue();
+                        rightDialogueButtonCallback = function() {
+                            hideDialogue();
 
-                        workLeft.push(
-                            [TYPE_OF_WORK.TYPE, TYPE_OF_WORK.PRINT].sample());
+                            workLeft.push(
+                                [TYPE_OF_WORK.TYPE, TYPE_OF_WORK.PRINT, 
+                                TYPE_OF_WORK.THROW_WORK].sample());
+                        }
+                        showDialogue(boss.name, bossSpeaks(), leftDialogueButtonCallback, rightDialogueButtonCallback);
+
+                        ticksSinceLastBossDialogue = 0;
                     }
-                    showDialogue(bossSpeaks(), leftDialogueButtonCallback, rightDialogueButtonCallback);
-
-                    ticksSinceLastBossDialogue = 0;
 
                     
                     return false;
@@ -456,78 +469,198 @@ function gameLoop(delta) {
                 workLeft = workLeft.filter(w => w instanceof Array 
                                                 || w != TYPE_OF_WORK.PRINT);
 
+                if (window.completeTaskCallback) {
+                    window.completeTaskCallback();
+                    window.completeTaskCallback = null;
+                }
+                return false;
+            }
+        }
+
+        if (options && !options.hasOwnProperty('incComputer') || options['incComputer'] == true) {
+            if (hitRectangle(future, computer)) {
+                let index = workLeft.indexOf(TYPE_OF_WORK.TYPE);
+                
+                workLeft = workLeft.filter(w => w instanceof Array 
+                                                || w != TYPE_OF_WORK.TYPE);
+                if (window.completeTaskCallback) {
+                    window.completeTaskCallback();
+                    window.completeTaskCallback = null;
+                }
+
                 return false;
             }
         }
 
         for (var colleague of colleagues) {
-            if (hitRectangle(future, colleague) && ticksSinceLastColleagueDialogue > 50) {
-                let scheduleMeetingJobs = workLeft
-                    .filter(work => work instanceof Array)
-                    .filter(work => work[0] == TYPE_OF_WORK.SCHEDULE_MEETING)
-                    .filter(work => work[1] == colleague.name);
-                let askForWorkJobs = workLeft
-                    .filter(work => work instanceof Array)
-                    .filter(work => work[0] == TYPE_OF_WORK.ASK_FOR_WORK)
-                    .filter(work => work[1] == colleague.name);
-                
-
-                if (scheduleMeetingJobs.length > 0) {
-                    let work = scheduleMeetingJobs.shift();
-
-                    workLeft = workLeft.filter(w => w != work);
-
-                    leftDialogueButtonCallback = function() {
-                        hideDialogue();
-                        addPoliticalEnemy(colleague.name, slave.name);
-                    };
-
-                    rightDialogueButtonCallback = function() {
-                        hideDialogue();
-
-                        addFriend(colleague.name, slave.name);
-
-                        // callback for work
-                        work[2]();
-                    }
-
-                    showDialogue(colleagueSpeaksWithPolitics(colleague.name, 'meeting'), leftDialogueButtonCallback, rightDialogueButtonCallback);
-
-                } if (askForWorkJobs.length > 0) {
-                    let work = askForWorkJobs.shift();
-
-                    workLeft = workLeft.filter(w => w != work);
-
-                    leftDialogueButtonCallback = function() {
-                        hideDialogue();
+            if (hitRectangle(future, colleague)) {
+                if (ticksSinceLastColleagueDialogue > 75) {
+                    let scheduleMeetingJobs = workLeft
+                        .filter(work => work instanceof Array)
+                        .filter(work => work[0] == TYPE_OF_WORK.SCHEDULE_MEETING)
+                        .filter(work => work[1] == colleague.name);
+                    let askForWorkJobs = workLeft
+                        .filter(work => work instanceof Array)
+                        .filter(work => work[0] == TYPE_OF_WORK.ASK_FOR_WORK)
+                        .filter(work => work[1] == colleague.name);
                         
-                    };
+                    let hasThrowWorkJobs = !(workLeft[0] instanceof Array) 
+                        && workLeft[0] == TYPE_OF_WORK.THROW_WORK;
+                    
+                    let talkToColleagueJobs = workLeft
+                        .filter(work => work instanceof Array)
+                        .filter(work => work[0] == TYPE_OF_WORK.TALK)
+                        .filter(work => work[1] == colleague.name);
 
-                    rightDialogueButtonCallback = function() {
-                        hideDialogue();
-                     
+
+                    if (scheduleMeetingJobs.length > 0) {
+                        let work = scheduleMeetingJobs.shift();
+
+                        workLeft = workLeft.filter(w => 
+                            !(w instanceof Array) || 
+                            work[0] != TYPE_OF_WORK.SCHEDULE_MEETING ||
+                            work[1] != colleague.name);
+                        
+                        if (window.completeTaskCallback) {
+                            window.completeTaskCallback();
+                            window.completeTaskCallback = null;
+                        }
+
+                        leftDialogueButtonCallback = function() {
+                            hideDialogue();
+                            addPoliticalEnemy(colleague.name, slave.name);
+                        };
+
+                        rightDialogueButtonCallback = function() {
+                            hideDialogue();
+
+                            addFriend(colleague.name, slave.name);
+
+                            // callback for work
+                            work[2]();
+                        }
+
+                        showDialogue(colleague.name, colleagueSpeaksWithPolitics(colleague.name, 'meeting'), 
+                            leftDialogueButtonCallback, rightDialogueButtonCallback);
+
+                    } else if (askForWorkJobs.length > 0) {
+                        let work = askForWorkJobs.shift();
+
+                        workLeft = workLeft.filter(w => 
+                            !(w instanceof Array) || 
+                            w[0] != TYPE_OF_WORK.ASK_FOR_WORK || 
+                            w[1] != colleague.name);
+
+                        if (window.completeTaskCallback) {
+                            window.completeTaskCallback();
+                            window.completeTaskCallback = null;
+                        }
+
+                        let checkThatNoMoreAskForWork = function() {
+                            let hasAskForWork = workLeft
+                                .filter(work => work instanceof Array)
+                                .filter(work => work[0] == TYPE_OF_WORK.ASK_FOR_WORK)
+                                .length > 0;
+
+                            if (!hasAskForWork) {
+                                let meetingOrganizer = work[2];
+                                let topicOfMeeting = Object.getOwnPropertySymbols(political_compass_for_person[meetingOrganizer])
+                                    .filter(sym => political_compass_for_person[meetingOrganizer][sym])
+                                    .sample();
+                                
+                                let happyPeople = 
+                                    colleagues.filter((e) => political_compass_for_person[e.name][topicOfMeeting])
+                                    .map(e => e.name);
+
+                                let unhappyPeople =
+                                    colleagues.filter((e) => !political_compass_for_person[e.name][topicOfMeeting])
+                                    .map(e => e.name);
+
+                                unhappyPeople.forEach(up => addPoliticalEnemy(up, meetingOrganizer));
+
+                                let complainer = unhappyPeople
+                                    .filter(up => !hasRelation(up, meetingOrganizer, 'friend'))
+                                    .sample();
+
+                                showDialogue("Meeting", 
+                                    `A meeting was held.\n${complainer} was vocal about his unhappiness \nwith ${meetingOrganizer}'s support for ${displayPoliticalTopicActiveSense(topicOfMeeting)}.\nDo you inform ${complainer} that you have similar concerns?`,
+                                    function() {hideDialogue();}, 
+                                    function() {
+                                        addFriend(complainer, slave.name);
+                                        hideDialogue();
+                                    });
+                            }
+                        }
+
+                        leftDialogueButtonCallback = function() {
+                            hideDialogue();
+                            checkThatNoMoreAskForWork();
+                        };
+
+                        rightDialogueButtonCallback = function() {
+                            if (hasRelation(colleague.name, work[2], 'political_enemy')) {
+                                addPoliticalEnemy(colleague.name, slave.name);
+                            }
+
+                            hideDialogue();
+                            checkThatNoMoreAskForWork();
+                        }
+
+                        showDialogue(colleague.name, "Do you agree we should be doing this?", 
+                            leftDialogueButtonCallback, rightDialogueButtonCallback);
+                    } else if (hasThrowWorkJobs) {
+                        let work = workLeft.shift();
+
+                        if (window.completeTaskCallback) {
+                            window.completeTaskCallback();
+                            window.completeTaskCallback = null;
+                        }
+
+                        leftDialogueButtonCallback = function() {
+                            addFriend(colleague.name, slave.name);
+                            hideDialogue();
+                        };
+
+                        rightDialogueButtonCallback = function() {
+                            addPoliticalEnemy(colleague.name, slave.name);
+                            hideDialogue();
+                        }
+
+                        showDialogue(colleague.name, "Are you sure I should work on this?", 
+                            leftDialogueButtonCallback, rightDialogueButtonCallback);
+                    } else if (talkToColleagueJobs.length > 0) {
+                        let work = workLeft.shift();
+
+                        leftDialogueButtonCallback = function() {
+                            hideDialogue();
+                        };
+
+                        rightDialogueButtonCallback = function() {
+                            hideDialogue();
+                        }
+
+                        showDialogue(colleague.name, askColleagueQuestion(), 
+                            leftDialogueButtonCallback, rightDialogueButtonCallback);
+                    } else {
+                        // just normal talk
+
+                        leftDialogueButtonCallback = function() {
+                            hideDialogue();
+                        };
+
+                        rightDialogueButtonCallback = function() {
+                            hideDialogue();
+                        }
+
+                        let whatToSay = [
+                                colleagueSpeaks, 
+                                colleagueSpeaksWithPolitics.bind(null, colleague.name, 'smalltalk')
+                            ].sample();
+                        showDialogue(colleague.name, whatToSay(), leftDialogueButtonCallback, rightDialogueButtonCallback);
                     }
 
-                    showDialogue(colleagueSpeaks(), leftDialogueButtonCallback, rightDialogueButtonCallback);
-                } else {
-                    // just normal talk
-
-                    leftDialogueButtonCallback = function() {
-                        hideDialogue();
-                    };
-
-                    rightDialogueButtonCallback = function() {
-                        hideDialogue();
-                    }
-
-                    let whatToSay = [
-                            colleagueSpeaks, 
-                            colleagueSpeaksWithPolitics.bind(null, colleague.name, 'smalltalk')
-                        ].sample();
-                    showDialogue(whatToSay(), leftDialogueButtonCallback, rightDialogueButtonCallback);
+                    ticksSinceLastColleagueDialogue = 0;
                 }
-
-                ticksSinceLastColleagueDialogue = 0;
 
                 return false;
             }
@@ -539,13 +672,23 @@ function gameLoop(delta) {
     if (!isGameFrozen) {
         
         theSlaveMoves();
-        for (boss in bosses) {
+        for (let boss in bosses) {
             theBossFollows(boss);
         }
 
         gameticks += 1 % 10000;
         ticksSinceLastBossDialogue += 1 % 10000;
         ticksSinceLastColleagueDialogue += 1 % 10000;
+
+        if (window.taskTimeLimit != Infinity) {
+            if (window.taskTimeLimit == 0) {
+                angerBoss(10);
+                window.taskTimeLimit = Infinity;
+            } else {
+                window.taskTimeLimit -= 1;
+            }
+        }
+
         if (gameticks % 25 == 0) {
             for (boss of bosses) {
                 if (randomInt(0, 1) == 0) {
@@ -564,6 +707,13 @@ function gameLoop(delta) {
             if (event) {
                 event.run();
             }
+
+            let e = produceEvent([TYPE_OF_WORK.PRINT, 
+                TYPE_OF_WORK.TYPE, 
+                TYPE_OF_WORK.TALK]);
+            
+            eventQueue.push(e);
+        
         }
 
         let displayableWorkLeft = workLeft.map(
@@ -571,6 +721,46 @@ function gameLoop(delta) {
         );
 
         workMessage.text = "Work left: " + displayableWorkLeft;
+    }
+}
+
+function displayPoliticalTopicActiveSense(topic) {
+    switch (topic) {
+        case QUALITY:
+            return "raising our product's quality";
+        case SPEED :
+            return "increasing our department's speed";
+        case COST:
+            return "lowering the cost of our department";
+        case BUREACRACY:
+            return "improving the department's processes and accountability";
+        case DICTATORSHIP:
+            return "letting our department's head and CEO's have a hands-on approach to management";
+        case SOCIALISM:
+            return "enhancing the distribution of credit and bonus in our department";
+        default:
+            console.log(topic);
+            throw new Error('dev forget a case ')
+    }
+}
+
+function displayPoliticalTopicNegatively(topic) {
+    switch (topic) {
+        case QUALITY:
+            return "our product's lack of quality";
+        case SPEED :
+            return "our department's lack of speed";
+        case COST:
+            return "the high cost of our department";
+        case BUREACRACY:
+            return "the department's growing amount of red tape";
+        case DICTATORSHIP:
+            return "our department's head and CEO's tight grip over the company";
+        case SOCIALISM:
+            return "the unequal distribution of credit and bonus in our department";
+        default:
+            console.log(topic);
+            throw new Error('dev forget a case ')
     }
 }
 
@@ -585,15 +775,19 @@ function displayWork(work) {
         case TYPE_OF_WORK.PRINT:
             return 'Go to the printer and press a button';
         case TYPE_OF_WORK.TALK:
-            return 'Talk'; // TODO
+            return `Talk to ${work[1]}`; // TODO
+        case TYPE_OF_WORK.TYPE:
+            return 'Type on your computer'; // TODO
         case TYPE_OF_WORK.SCHEDULE_MEETING:
             return `Talk to ${work[1]} to schedule a meeting`;
         case TYPE_OF_WORK.THROW_WORK:
             return 'Throw work'; // TODO
         case TYPE_OF_WORK.ASK_FOR_WORK:
-            return `Talk to ${work[1]} to bring a request`;
+            return `Talk to ${work[1]} to convey a request from ${work[2]}`;
         case TYPE_OF_WORK.CONSPIRE:
             return 'conspire'; // TODO
+        default:
+            throw new Error("The developer forgot to include some case");
     }
 }
 
@@ -663,7 +857,9 @@ function hideDialogue() {
     isGameFrozen = false;
     dialogue.visible = false;
 }
-function showDialogue(text, leftDialogueButtonCallback,rightDialogueButtonCallback ) {
+function showDialogue(person, text, leftDialogueButtonCallback,rightDialogueButtonCallback ) {
+    dialoguePerson.text = person;
+
     leftButton.click = leftDialogueButtonCallback;
     rightButton.click = rightDialogueButtonCallback;
 
@@ -674,6 +870,17 @@ function showDialogue(text, leftDialogueButtonCallback,rightDialogueButtonCallba
 
 
 function nextEvent() {
+
+
     return eventQueue.shift();
 
+}
+
+
+function angerBoss(amt) {
+    showDialogue("Urgent task failed", "You have failed to answer your boss's request quickly.\nYour boss is not pleased.",
+        () => hideDialogue(),
+        () => hideDialogue()
+    );
+    bossAnger += amt;
 }
