@@ -573,7 +573,7 @@ function gameLoop(delta) {
                         .filter(work => work[0] == TYPE_OF_WORK.TALK)
                         .filter(work => work[1] == colleague.name);
 
-                    let conspireJobs = workleft
+                    let conspireJobs = workLeft
                         .filter(work => work instanceof Array)
                         .filter(work => work[0] == TYPE_OF_WORK.CONSPIRE)
                         .filter(work => work[1] == colleague.name);
