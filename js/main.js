@@ -673,7 +673,7 @@ function gameLoop(delta) {
                         }
 
                         showDialogue(colleague.name, `Oh, ${work[2]} wants a meeting.\n
-                            Do you think ${work[2]} knows what should be done?`, 
+                            Do you think ${work[2]} knows what he's doing?`, 
                             leftDialogueButtonCallback, rightDialogueButtonCallback);
                     } else if (hasThrowWorkJobs) {
                         let work = workLeft.shift();
@@ -708,7 +708,7 @@ function gameLoop(delta) {
 
                         showDialogue(colleague.name, askColleagueQuestion(), 
                             leftDialogueButtonCallback, rightDialogueButtonCallback);
-                    } else if (conspireJobs) {
+                    } else if (conspireJobs.length > 0) {
                         workLeft = workLeft.filter(w => 
                             !(w instanceof Array) || 
                             w[0] != TYPE_OF_WORK.CONSPIRE || 
