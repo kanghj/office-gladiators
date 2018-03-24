@@ -157,3 +157,12 @@ function colleagueSpeaksWithPolitics(colleague, task) {
     let topic = topics.sample();
     return political_grammar[topic].flatten('#' + task + '#');
 }
+
+// based on whether you are `political_ally`s,
+// and whether he thinks you share the same political leanings
+// your colleague may:
+//     1. agree to blame a political_enemy
+//     2. gain a political_enemy based on your choice
+function colleagueConspires(colleague) {
+    
+}

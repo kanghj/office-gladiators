@@ -274,6 +274,67 @@ function setup() {
     createDialogueBox();
     hideDialogue();
 
+    function createConspiracyChoiceBox() {
+        conspiracyDialogue = new PIXI.DisplayObjectContainer();
+        conspiracyDialogue.position.set(0, 0);
+        app.stage.addChild(conspiracyDialogue);
+    
+        let rectangleContainer = new PIXI.Graphics();
+        rectangleContainer.beginFill(0xFFFFFF);
+        rectangleContainer.drawRect(app.stage.width / 2 - 200, app.stage.height / 2 - 100, 420, 220);
+        rectangleContainer.endFill();
+        conspiracyDialogue.addChild(rectangleContainer);
+
+
+        leftButton = new PIXI.Graphics();
+
+        leftButton.beginFill(0x555555);
+        leftButton.drawRect(app.stage.width / 2 - 175, app.stage.height / 2 + 50, 100, 50);
+        leftButton.endFill();
+        conspiracyDialogue.addChild(leftButton);
+
+        leftButton.interactive = true;
+        leftButton.buttonMode = true;
+
+        // Add a hit area, otherwise clicking doesn't work
+        leftButton.hitArea = new PIXI.Rectangle(app.stage.width / 2 - 175, app.stage.height / 2 + 50, 100, 50);
+
+
+        rightButton = new PIXI.Graphics();
+        rightButton.beginFill(0x555555);
+        rightButton.drawRect(app.stage.width / 2 + 35, app.stage.height / 2 + 50, 100, 50);
+        rightButton.endFill();
+        conspiracyDialogue.addChild(rightButton);
+
+        rightButton.interactive = true;
+        rightButton.buttonMode = true;
+
+        // Add a hit area, otherwise clicking doesn't work
+        rightButton.hitArea = new PIXI.Rectangle(app.stage.width / 2 + 75, app.stage.height / 2 + 50, 100, 50);
+
+
+        let leftButtonText = new PIXI.Text("No");
+        leftButtonText.position = new PIXI.Point (app.stage.width / 2 - 175,app.stage.height / 2 + 50);
+        conspiracyDialogue.addChild(leftButtonText);
+
+        
+        let rightButtonText = new PIXI.Text("Yes");
+        rightButtonText.position = new PIXI.Point (app.stage.width / 2 + 75,app.stage.height / 2 + 50);
+        conspiracyDialogue.addChild(rightButtonText);
+
+        speechText = new PIXI.Text("Ok\n AHHHHHHHHH", {fontSize: 16});
+        speechText.position = new PIXI.Point (app.stage.width / 2 - 180 ,app.stage.height / 2 - 60);
+        conspiracyDialogue.addChild(speechText);
+
+
+        conspiracyDialoguePerson = new PIXI.Text("", {fontSize: 12});
+        conspiracyDialoguePerson.position = new PIXI.Point (app.stage.width / 2 - 180 ,app.stage.height / 2 - 80);
+        conspiracyDialogue.addChild(conspiracyDialoguePerson);
+
+        conspiracyDialogue.visible = false;
+        
+    }
+
     eventQueue = [
         null, null, null, null, null, null, 
         new SomeoneWantsAMeeting(colleagues.sample().name)];    
@@ -512,6 +573,11 @@ function gameLoop(delta) {
                         .filter(work => work[0] == TYPE_OF_WORK.TALK)
                         .filter(work => work[1] == colleague.name);
 
+                    let conspireJobs = workleft
+                        .filter(work => work instanceof Array)
+                        .filter(work => work[0] == TYPE_OF_WORK.CONSPIRE)
+                        .filter(work => work[1] == colleague.name);
+
 
                     if (scheduleMeetingJobs.length > 0) {
                         let work = scheduleMeetingJobs.shift();
@@ -606,7 +672,8 @@ function gameLoop(delta) {
                             checkThatNoMoreAskForWork();
                         }
 
-                        showDialogue(colleague.name, "Do you agree we should be doing this?", 
+                        showDialogue(colleague.name, `Oh, ${work[2]} wants a meeting.\n
+                            Do you think ${work[2]} knows what should be done?`, 
                             leftDialogueButtonCallback, rightDialogueButtonCallback);
                     } else if (hasThrowWorkJobs) {
                         let work = workLeft.shift();
@@ -641,6 +708,29 @@ function gameLoop(delta) {
 
                         showDialogue(colleague.name, askColleagueQuestion(), 
                             leftDialogueButtonCallback, rightDialogueButtonCallback);
+                    } else if (conspireJobs) {
+                        workLeft = workLeft.filter(w => 
+                            !(w instanceof Array) || 
+                            w[0] != TYPE_OF_WORK.CONSPIRE || 
+                            w[1] != colleague.name);
+
+                        if (window.completeTaskCallback) {
+                            window.completeTaskCallback();
+                            window.completeTaskCallback = null;
+                        }
+
+                        leftDialogueButtonCallback = function() {
+                            hideDialogue();
+                        };
+
+                        rightDialogueButtonCallback = function() {
+                            hideDialogue();
+                        }
+
+                        showDialogue(colleague.name, colleagueConspires(), 
+                            leftDialogueButtonCallback, rightDialogueButtonCallback);
+                        
+                        
                     } else {
                         // just normal talk
 
@@ -726,17 +816,17 @@ function gameLoop(delta) {
 
 function displayPoliticalTopicActiveSense(topic) {
     switch (topic) {
-        case QUALITY:
+        case POLITICAL_TOPICS.QUALITY:
             return "raising our product's quality";
-        case SPEED :
+        case POLITICAL_TOPICS.SPEED :
             return "increasing our department's speed";
-        case COST:
+        case POLITICAL_TOPICS.COST:
             return "lowering the cost of our department";
-        case BUREACRACY:
+        case POLITICAL_TOPICS.BUREACRACY:
             return "improving the department's processes and accountability";
-        case DICTATORSHIP:
+        case POLITICAL_TOPICS.DICTATORSHIP:
             return "letting our department's head and CEO's have a hands-on approach to management";
-        case SOCIALISM:
+        case POLITICAL_TOPICS.SOCIALISM:
             return "enhancing the distribution of credit and bonus in our department";
         default:
             console.log(topic);
@@ -746,17 +836,17 @@ function displayPoliticalTopicActiveSense(topic) {
 
 function displayPoliticalTopicNegatively(topic) {
     switch (topic) {
-        case QUALITY:
+        case POLITICAL_TOPICS.QUALITY:
             return "our product's lack of quality";
-        case SPEED :
+        case POLITICAL_TOPICS.SPEED :
             return "our department's lack of speed";
-        case COST:
+        case POLITICAL_TOPICS.COST:
             return "the high cost of our department";
-        case BUREACRACY:
+        case POLITICAL_TOPICS.BUREACRACY:
             return "the department's growing amount of red tape";
-        case DICTATORSHIP:
+        case POLITICAL_TOPICS.DICTATORSHIP:
             return "our department's head and CEO's tight grip over the company";
-        case SOCIALISM:
+        case POLITICAL_TOPICS.SOCIALISM:
             return "the unequal distribution of credit and bonus in our department";
         default:
             console.log(topic);
@@ -781,7 +871,7 @@ function displayWork(work) {
         case TYPE_OF_WORK.SCHEDULE_MEETING:
             return `Talk to ${work[1]} to schedule a meeting`;
         case TYPE_OF_WORK.THROW_WORK:
-            return 'Throw work'; // TODO
+            return 'Delegate silly work to somewhere'; // TODO
         case TYPE_OF_WORK.ASK_FOR_WORK:
             return `Talk to ${work[1]} to convey a request from ${work[2]}`;
         case TYPE_OF_WORK.CONSPIRE:
